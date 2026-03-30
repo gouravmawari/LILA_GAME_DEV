@@ -1,42 +1,14 @@
-// import React from 'react';
-// import logo from './logo.svg';
-// import './App.css';
-
-// function App() {
-//   return (
-//     <div className="App">
-//       <header className="App-header">
-//         <img src={logo} className="App-logo" alt="logo" />
-//         <p>
-//           Edit <code>src/App.tsx</code> and save to reload.
-//         </p>
-//         <a
-//           className="App-link"
-//           href="https://reactjs.org"
-//           target="_blank"
-//           rel="noopener noreferrer"
-//         >
-//           Learn React
-//         </a>
-//       </header>
-//     </div>
-//   );
-// }
-
-// export default App;
 import { useState, useEffect, useRef } from "react";
 import * as nakamajs from "@heroiclabs/nakama-js";
 
-// ─── CONFIG ────────────────────────────────────────────────────────────────
-const NAKAMA_HOST = "localhost";
-const NAKAMA_PORT = "7350";
+const NAKAMA_HOST = "nakama-system.run.place";
+const NAKAMA_PORT = "443";
 const NAKAMA_KEY  = "defaultkey";
-const USE_SSL     = false;
+const USE_SSL     = true;
 
 const OP_CODE_GAME_STATE = 1;
 const OP_CODE_MOVE       = 2;
 
-// ─── TYPES ─────────────────────────────────────────────────────────────────
 interface GameState {
   board: string[];
   currentTurn: string;
@@ -48,12 +20,10 @@ interface GameState {
 
 type Screen = "login" | "lobby" | "waiting" | "game";
 
-// ─── APP ───────────────────────────────────────────────────────────────────
 export default function App() {
   const clientRef   = useRef<nakamajs.Client | null>(null);
   const socketRef   = useRef<nakamajs.Socket | null>(null);
   const sessionRef  = useRef<nakamajs.Session | null>(null);
-  // Use ref for matchId so it's always fresh inside socket callbacks
   const matchIdRef  = useRef<string>("");
 
   const [screen,    setScreen]    = useState<Screen>("login");
@@ -66,15 +36,11 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState("");
   const [error,     setError]     = useState("");
 
-  // ── Init Nakama client once ──
   useEffect(() => {
     clientRef.current = new nakamajs.Client(NAKAMA_KEY, NAKAMA_HOST, NAKAMA_PORT, USE_SSL);
   }, []);
 
-  // ── Set up socket listeners — only once after socket is created ──
   function setupSocketListeners(socket: nakamajs.Socket, currentUserId: string) {
-
-    // FIX: onmatchdata uses matchIdRef (always fresh) not stale state
     socket.onmatchdata = (data) => {
       if (data.op_code === OP_CODE_GAME_STATE) {
         try {
@@ -88,14 +54,13 @@ export default function App() {
               );
           const gs: GameState = JSON.parse(json);
           setGameState(gs);
-          setScreen("game"); // ← this now correctly fires for BOTH players
+          setScreen("game");
         } catch(e) {
           console.error("Failed to parse game state", e);
         }
       }
     };
 
-    // FIX: matchmakermatched — join the match immediately, screen updates via onmatchdata
     socket.onmatchmakermatched = async (matched: any) => {
       try {
         const mid = matched.match_id || matched.matchId || matched.match?.match_id;
@@ -106,14 +71,12 @@ export default function App() {
         matchIdRef.current = mid;
         setStatusMsg("Opponent found! Joining match...");
         await socket.joinMatch(mid);
-        // Screen will change to "game" when onmatchdata fires with initial state
       } catch(e: any) {
         setError("Failed to join matched game: " + (e.message ?? e));
         setScreen("lobby");
       }
     };
 
-    // Handle opponent disconnection
     socket.onmatchpresence = (presence: any) => {
       if (presence.leaves && presence.leaves.length > 0) {
         setStatusMsg("Opponent disconnected");
@@ -121,7 +84,6 @@ export default function App() {
     };
   }
 
-  // ── LOGIN ──────────────────────────────────────────────────────────────
   async function handleLogin() {
     setError("");
     if (!username.trim()) { setError("Enter a username"); return; }
@@ -135,7 +97,6 @@ export default function App() {
       const socket = client.createSocket(USE_SSL, false);
       socketRef.current = socket;
 
-      // Set up listeners BEFORE connecting
       setupSocketListeners(socket, session.user_id!);
 
       await socket.connect(session, true);
@@ -145,20 +106,17 @@ export default function App() {
     }
   }
 
-  // ── DETERMINE MY SYMBOL once gameState arrives ──
   useEffect(() => {
     if (!gameState || !userId) return;
     if (gameState.playerX === userId) setMySymbol("X");
     else if (gameState.playerO === userId) setMySymbol("O");
   }, [gameState, userId]);
 
-  // ── AUTO MATCHMAKING ───────────────────────────────────────────────────
   async function handleAutoMatch() {
     setError("");
     try {
       setScreen("waiting");
       setStatusMsg("Searching for opponent...");
-      // Add to matchmaker queue — Nakama pairs 2 players automatically
       await socketRef.current!.addMatchmaker("*", 2, 2, {}, {});
     } catch (e: any) {
       setError("Matchmaking failed: " + (e.message ?? e));
@@ -166,7 +124,6 @@ export default function App() {
     }
   }
 
-  // ── CREATE ROOM ────────────────────────────────────────────────────────
   async function handleCreateRoom() {
     setError("");
     try {
@@ -174,14 +131,11 @@ export default function App() {
       const data = typeof res.payload === "string" ? JSON.parse(res.payload) : res.payload;
       const mid  = data.matchId;
 
-      // Store in ref so onmatchdata callback always has fresh value
       matchIdRef.current = mid;
 
-      // Show short room code (UUID part before the dot)
       const code = mid.split(".")[0];
       setRoomCode(code);
 
-      // Join the match as host — will wait for player 2
       await socketRef.current!.joinMatch(mid);
       setScreen("waiting");
       setStatusMsg("Waiting for opponent to join...");
@@ -190,17 +144,14 @@ export default function App() {
     }
   }
 
-  // ── JOIN ROOM ──────────────────────────────────────────────────────────
   async function handleJoinRoom() {
     setError("");
     if (!joinCode.trim()) { setError("Enter a room code"); return; }
     try {
-      // Reconstruct full matchId — add ".nakama1" suffix if missing
       const fullMatchId = joinCode.trim().includes(".")
         ? joinCode.trim()
         : joinCode.trim() + ".nakama1";
 
-      // Validate with server first
       const res  = await clientRef.current!.rpc(
         sessionRef.current!,
         "join_match",
@@ -209,22 +160,17 @@ export default function App() {
       const data = typeof res.payload === "string" ? JSON.parse(res.payload) : res.payload;
       if (!data.success) { setError("Could not join match"); return; }
 
-      // Store matchId in ref
       matchIdRef.current = fullMatchId;
 
-      // FIX: Join via WebSocket — this triggers matchJoin on server
-      // Server will broadcast game state to BOTH players → onmatchdata fires → screen = "game"
       await socketRef.current!.joinMatch(fullMatchId);
 
       setScreen("waiting");
       setStatusMsg("Joined! Waiting for game to start...");
-      // Note: screen will auto-change to "game" when server broadcasts state via onmatchdata
     } catch (e: any) {
       setError("Join failed: " + (e.message ?? e));
     }
   }
 
-  // ── SEND MOVE ──────────────────────────────────────────────────────────
   async function handleCellClick(position: number) {
     if (!gameState) return;
     if (gameState.gameOver) return;
@@ -242,7 +188,6 @@ export default function App() {
     }
   }
 
-  // ── CANCEL / LEAVE / BACK TO LOBBY ─────────────────────────────────────
   async function handleLeave() {
     try {
       const mid = matchIdRef.current;
@@ -260,7 +205,6 @@ export default function App() {
     setScreen("lobby");
   }
 
-  // ── HELPERS ────────────────────────────────────────────────────────────
   function getResultText() {
     if (!gameState) return "";
     if (gameState.winner === "draw") return "It's a Draw!";
@@ -272,11 +216,6 @@ export default function App() {
     return gameState?.currentTurn === userId && !gameState?.gameOver;
   }
 
-  // ══════════════════════════════════════════════════════════════════════
-  // SCREENS
-  // ══════════════════════════════════════════════════════════════════════
-
-  // ── LOGIN ──
   if (screen === "login") return (
     <div style={s.page}>
       <div style={s.card}>
@@ -296,7 +235,6 @@ export default function App() {
     </div>
   );
 
-  // ── LOBBY ──
   if (screen === "lobby") return (
     <div style={s.page}>
       <div style={s.card}>
@@ -313,7 +251,7 @@ export default function App() {
 
         <div style={s.section}>
           <h3 style={s.sectionTitle}>🔒 Private Room</h3>
-          <p style={s.hint}>Create a room and share the code with a friend</p>
+          <p style={s.hint}>Create a room and share code with a friend</p>
           <button style={s.btnSecondary} onClick={handleCreateRoom}>Create Room</button>
         </div>
 
@@ -341,7 +279,6 @@ export default function App() {
     </div>
   );
 
-  // ── WAITING ──
   if (screen === "waiting") return (
     <div style={s.page}>
       <div style={s.card}>
@@ -364,21 +301,19 @@ export default function App() {
         )}
 
         <button style={{ ...s.btnSecondary, marginTop: 20 }} onClick={handleLeave}>
-          Cancel
+          Code
         </button>
         {error && <p style={s.error}>{error}</p>}
       </div>
     </div>
   );
 
-  // ── GAME ──
   if (screen === "game" && gameState) {
     const isOver = gameState.gameOver;
     return (
       <div style={s.page}>
         <div style={s.card}>
 
-          {/* Status bar */}
           <div style={s.gameHeader}>
             <span style={s.badge}>You are <strong>{mySymbol}</strong></span>
             <span style={isOver ? s.resultText : isMyTurn() ? s.turnActive : s.turnWait}>
@@ -390,7 +325,6 @@ export default function App() {
             </span>
           </div>
 
-          {/* Board */}
           <div style={s.board}>
             {gameState.board.map((cell, i) => {
               const clickable = !isOver && isMyTurn() && cell === "";
@@ -418,7 +352,6 @@ export default function App() {
             })}
           </div>
 
-          {/* Player indicators */}
           <div style={s.players}>
             <div style={gameState.currentTurn === gameState.playerX && !isOver ? s.playerActive : s.playerInactive}>
               ✕ {gameState.playerX === userId ? "You" : "Opponent"}
@@ -444,7 +377,6 @@ export default function App() {
   return null;
 }
 
-// ─── STYLES ────────────────────────────────────────────────────────────────
 const s: Record<string, React.CSSProperties> = {
   page: {
     minHeight: "100vh",

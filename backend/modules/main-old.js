@@ -3,9 +3,9 @@
 var OP_CODE_GAME_STATE = 1;
 var OP_CODE_MOVE = 2;
 var WIN_CONDITIONS = [
-    [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
-    [0, 3, 6], [1, 4, 7], [2, 5, 8], // columns
-    [0, 4, 8], [2, 4, 6] // diagonals
+    [0, 1, 2], [3, 4, 5], [6, 7, 8],
+    [0, 3, 6], [1, 4, 7], [2, 5, 8],
+    [0, 4, 8], [2, 4, 6]
 ];
 function checkWinner(board) {
     for (var i = 0; i < WIN_CONDITIONS.length; i++) {
@@ -27,7 +27,7 @@ function checkDraw(board) {
 }
 function matchInit(ctx, logger, nk, params) {
     var state = {
-        board: ["", "", "", "", "", "", "", "", "", ""],
+        board: ["", "", "", "", "", "", "", "", ""],
         currentTurn: "",
         playerX: "",
         playerO: "",
@@ -142,6 +142,31 @@ function createMatchRpc(ctx, logger, nk, payload) {
     logger.info("Match created with ID: " + match);
     return JSON.stringify({ matchId: match });
 }
+function joinMatchRpc(ctx, logger, nk, payload) {
+    var data;
+    try {
+        data = JSON.parse(payload);
+    }
+    catch (e) {
+        throw new Error("Invalid payload — expected { matchId: string }");
+    }
+    if (!data.matchId) {
+        throw new Error("matchId is required");
+    }
+    var matches = nk.matchList(100, true, "tic-tac-toe", 0, 1, "");
+    var found = false;
+    for (var i = 0; i < matches.length; i++) {
+        if (matches[i].matchId === data.matchId) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        throw new Error("Match not found or already full");
+    }
+    logger.info("Player joining match by room code: " + data.matchId);
+    return JSON.stringify({ matchId: data.matchId, success: true });
+}
 function findMatchRpc(ctx, logger, nk, payload) {
     var storageKey = "waiting_match";
     var collection = "matchmaking";
@@ -201,6 +226,7 @@ function InitModule(ctx, logger, nk, initializer) {
         matchSignal: matchSignal
     });
     initializer.registerRpc("create_match", createMatchRpc);
+    initializer.registerRpc("join_match", joinMatchRpc);
     initializer.registerRpc("find_match", findMatchRpc);
     initializer.registerRpc("healthcheck", healthcheckRpc);
     initializer.registerMatchmakerMatched(matchmakerMatched);
