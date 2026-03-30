@@ -10,7 +10,6 @@ services:
       - "5432:5432"
     command: postgres -c max_connections=300
     restart: always
-
   nakama:
     build: .
     depends_on:
@@ -28,10 +27,7 @@ services:
         --session.token_expiry_sec 7200
         --runtime.path /nakama/data/modules
         --runtime.js_entrypoint main.js
-        --runtime.js_min_count 16
-        --runtime.js_max_count 64
         --match.input_queue_size 128
-        --match.send_queue_size 128
         --cluster.name tictactoe-cluster
         --cluster.port 7352
     restart: always
@@ -42,6 +38,5 @@ services:
       - "7350:7350"
       - "7351:7351"
       - "7352:7352"
-
 volumes:
   data:
