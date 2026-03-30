@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:12.2-alpine
+    environment:
+      POSTGRES_DB: nakama
+      POSTGRES_PASSWORD: localdb
+    volumes:
+      - data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    command: postgres -c max_connections=300
+    restart: always
+
+  nakama:
+    build: .
+    depends_on:
+      - postgres
+    entrypoint:
+      - "/bin/sh"
+      - "-ecx"
+      - >
+        /nakama/nakama migrate up
+        --database.address postgres:localdb@postgres:5432/nakama &&
+        exec /nakama/nakama
+        --name nakama1
+        --database.address postgres:localdb@postgres:5432/nakama
+        --logger.level INFO
+        --session.token_expiry_sec 7200
+        --runtime.path /nakama/data/modules
+        --runtime.js_entrypoint main.js
+        --runtime.js_min_count 16
+        --runtime.js_max_count 64
+        --match.input_queue_size 128
+        --match.send_queue_size 128
+        --cluster.name tictactoe-cluster
+        --cluster.port 7352
+    restart: always
+    links:
+      - postgres
+    ports:
+      - "7349:7349"
+      - "7350:7350"
+      - "7351:7351"
+      - "7352:7352"
+
+volumes:
+  data:
