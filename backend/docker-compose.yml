@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:12.2-alpine
+    environment:
+      POSTGRES_DB: nakama
+      POSTGRES_PASSWORD: localdb
+    volumes:
+      - data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  nakama:
+    build: .
+    depends_on:
+      - postgres
+    entrypoint:
+      - "/bin/sh"
+      - "-ecx"
+      - >
+        /nakama/nakama migrate up --database.address postgres:localdb@postgres:5432/nakama &&
+        exec /nakama/nakama
+        --name nakama1
+        --database.address postgres:localdb@postgres:5432/nakama
+        --logger.level DEBUG
+        --session.token_expiry_sec 7200
+        --runtime.path /nakama/data/modules
+        --runtime.js_entrypoint main.js
+    restart: always
+    links:
+      - postgres
+    ports:
+      - "7349:7349"
+      - "7350:7350"
+      - "7351:7351"
+
+volumes:
+  data:
